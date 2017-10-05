@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { Teacher }           from '../../models/teacher';
 
 @Component({
   selector: 'app-home',
@@ -7,10 +8,17 @@ import { Component, OnInit } from '@angular/core';
 })
 export class HomeComponent implements OnInit {
   title = `App works !`;
+  teacher: Teacher;
 
   constructor() { }
 
-  ngOnInit() {
+  async ngOnInit() {
+    const teachers = [];
+    this.teacher = teachers.length ? teachers[0] : new Teacher();
+  }
+
+  save() {
+    console.log("Save teacher " + this.teacher.name);
   }
 
 }

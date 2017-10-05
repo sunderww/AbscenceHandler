@@ -54,7 +54,6 @@
     "@angular/compiler-cli": "4.4.3",
     "@types/core-js": "0.9.36",
     "@types/jasmine": "2.5.54",
-    "@types/node": "7.0.7",
     "autoprefixer": "7.1.4",
     "codelyzer": "3.2.0",
     "copyfiles": "1.2.0",
