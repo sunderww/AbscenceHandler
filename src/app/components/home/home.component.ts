@@ -13,12 +13,13 @@ export class HomeComponent implements OnInit {
   constructor() { }
 
   async ngOnInit() {
-    const teachers = [];
+    const teachers = await Teacher.find()
     this.teacher = teachers.length ? teachers[0] : new Teacher();
   }
 
   save() {
     console.log("Save teacher " + this.teacher.name);
+    this.teacher.save();
   }
 
 }

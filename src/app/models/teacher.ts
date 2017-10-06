@@ -1,8 +1,9 @@
+import { Entity, PrimaryColumn, BaseEntity } from "typeorm";
 
-export class Teacher {
+@Entity()
+export class Teacher extends BaseEntity {
+
+  @PrimaryColumn()
   name:  string;
 
-  constructor(name: string = '') {
-    this.name = name;
-  }
 }

@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { ElectronService } from './providers/electron.service';
+import { DBService } from './providers/db.service';
 
 @Component({
   selector: 'app-root',
@@ -7,7 +8,8 @@ import { ElectronService } from './providers/electron.service';
   styleUrls: ['./app.component.scss']
 })
 export class AppComponent {
-  constructor(public electronService: ElectronService) {
+  constructor(public electronService: ElectronService,
+              public database: DBService) {
 
     if (electronService.isElectron()) {
       console.log('Mode electron');
@@ -18,5 +20,7 @@ export class AppComponent {
     } else {
       console.log('Mode web');
     }
+
+    database.connect();
   }
 }

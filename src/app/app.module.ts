@@ -13,6 +13,7 @@ import { TeacherEditComponent } from './components/models/teacher/teacher.compo
 import { AppRoutingModule } from './app-routing.module';
 
 import { ElectronService } from './providers/electron.service';
+import { DBService } from './providers/db.service';
 
 @NgModule({
   declarations: [
@@ -28,6 +29,7 @@ import { ElectronService } from './providers/electron.service';
   ],
   providers: [
     ElectronService,
+    DBService,
   ],
   bootstrap: [AppComponent]
 })
