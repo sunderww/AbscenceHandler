@@ -1,8 +1,5 @@
-import * as DataStore from 'nedb';
-import * as path from 'path';
-import { remote } from 'electron';
-
-const app = remote.app;
+import * as DataStore     from 'nedb';
+import { fileInUserPath } from './util';
 
 interface NEORMMetadata {
    primaryKey ?: string;
@@ -45,7 +42,7 @@ export class Model {
   private static _db: DataStore;
   protected static _getDB(): DataStore {
     if (!this._db) {
-      const filename = path.join(app.getPath('userData'), this.name + '.db');
+      const filename = fileInUserPath(this.name + '.db');
       this._db = new DataStore({
         filename: filename,
         autoload: true,
@@ -208,22 +205,4 @@ export class Model {
     }
   }
 
-}
-
-export function Column(target: any, key: string) {
-  // Throw an error if the target does not inherit from Model
-  if (!(target instanceof Model)) {
-    throw new Error("Column must be applied on a class that inherits Model");
-  }
-
-  (<typeof Model>target.constructor)._addColumn(key);
-}
-
-export function PrimaryColumn(target: any, key: string) {
-  // Throw an error if the target does not inherit from Model
-  if (!(target.constructor.prototype instanceof Model)) {
-    throw new Error("Column must be applied on a class that inherits Model");
-  }
-
-  (<typeof Model>target.constructor)._addColumn(key, true);
 }

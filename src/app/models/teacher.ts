@@ -1,8 +1,8 @@
-import { Model, PrimaryColumn } from '../nedborm';
+import { Model, Column } from './orm/neorm';
 
 export class Teacher extends Model {
 
-  @PrimaryColumn
+  @Column
   name:  string;
 
   constructor(name: string = '') {
