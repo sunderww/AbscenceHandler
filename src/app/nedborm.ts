@@ -22,12 +22,18 @@ export class Model {
    * The metadata of the model that will allow to know which properties will
    * be stored inside the database.
   */
-  private static _metadata: NEORMMetadata = { keys: [] };
+  private static _metadata: NEORMMetadata;
   private static _getMetadata(): NEORMMetadata {
+    // NOTE: you CAN'T initialize _metadata on declaration as it would be
+    // shared between all inherited classes
+    if (!this._metadata) {
+      this._metadata = { keys: [] };
+    }
+
     return this._metadata;
   }
   /** A non-static helper to access the static _metadata member */
-  protected metadata(): NEORMMetadata {
+  private metadata(): NEORMMetadata {
     return (<typeof Model>this.constructor)._getMetadata();
   }
 
@@ -39,7 +45,7 @@ export class Model {
   private static _db: DataStore;
   protected static _getDB(): DataStore {
     if (!this._db) {
-      const filename = path.join(app.getPath('userData'), this.constructor.name + '.db');
+      const filename = path.join(app.getPath('userData'), this.name + '.db');
       this._db = new DataStore({
         filename: filename,
         autoload: true,
@@ -57,10 +63,25 @@ export class Model {
   private _id: string;
 
   /**
-   * Save the model to the database
-   * @return {Promise<object>} A promise that resolves with the new created object
+   * Constructs a model from a document coming from the DB. Basically Just
+   * sets the primary key correctly and the internal _id.
+   * @return {Model} the newly created object
+   */
+   protected static fromDocument(document: object): Model {
+     let obj = new this();
+     obj.updateDocument(document);
+     return obj;
+   }
+
+  /**
+   * Save the model to the database. If the models already exists in database,
+   * it will instead call update.
+   * @return {Promise<object>} A promise that resolves with the updated object
+   * (contains the _id).
    */
   public async save(): Promise<Model> {
+    if (this._id) return this.update();
+
     return new Promise<Model>((resolve, reject) => {
       this.db().insert(this.getDBDocument(), (error, newDoc) => {
         if (error) {
@@ -74,15 +95,67 @@ export class Model {
   }
 
   /**
-   *
+   * Updates the document to the database. The _id flag must be set otherwise
+   * it will return an error.
+   * @return {Promise<Model>} this object.
    */
-  public static async find(data: object): Promise<Model[]> {
-    const metadata = this._getMetadata();
-    return new Promise<Model[]>((resolve, reject) => {
-      // I must have a static DB :(
-      resolve([]);
+  public async update(): Promise<Model> {
+    return new Promise<Model>((resolve, reject) => {
+      if (!this._id) return reject(new Error('update must be called on an object already saved in the DB'));
+
+      this.db().update({ _id: this._id }, this.getDBDocument(), {}, (error, _) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(this);
+        }
+      });
     });
   }
+
+  /**
+   * Just a wrapper for neDB find method.
+   * See https://github.com/louischatriot/nedb for more information
+   * @return {Promise<Model[]>} A promise that resolves with all found objects
+   */
+  public static async find(data: object): Promise<Model[]> {
+    // First replace the primaryKey with _id in case the user uses a custom
+    // primary key.
+    const primaryKey = this._getMetadata().primaryKey;
+    if (primaryKey && primaryKey in data) {
+      data['_id'] = data[primaryKey];
+      delete data[primaryKey];
+    }
+
+    return new Promise<Model[]>((resolve, reject) => {
+      this._getDB().find(data, (error, documents) => {
+        if (error) {
+          reject(error);
+        } else {
+          // Map document objects to models
+          resolve(documents.map(d => this.fromDocument(d)));
+        }
+      });
+    });
+  }
+
+  /** Returns the model with a given _id */
+  public static async findByID(id: string): Promise<Model> {
+    return new Promise<Model>((resolve, reject) => {
+      this.find({ _id: id }).then(models => {
+        if (models.length) resolve(models[0]);
+        else resolve(null);
+      }).catch(error => {
+        reject(error);
+      });
+    });
+  }
+
+  /** Returns all models from the db */
+  public static async all(): Promise<Model[]> {
+    return this.find({});
+  }
+
 
   /** Returns the internal _id of the entity */
   public getID(): string {
@@ -112,10 +185,8 @@ export class Model {
   protected updateDocument(newDocument: object) {
     this._id = newDocument['_id'];
 
-    // Reset the fields of the object in case neDB changed anything.
-    // Normally, nothing should change, but it is better to see if neDB changed
-    // some values inside instead of having different data inside the db and
-    // inside the model.
+    // Reset the fields of the object in case neDB changed anything, or to
+    // initialize when constructing a model from a DB document.
     let metadata = this.metadata();
     if (metadata.primaryKey) {
       this[metadata.primaryKey] = newDocument['_id'];
@@ -127,22 +198,8 @@ export class Model {
   }
 
 
-  /**
-   * Returns the metadata associated with the class.
-   * @param {boolean} create: if the metadata does not exist and create is true,
-   * a default object will be created (no keys, no primarykey).
-   * @return {NEORMMetadata} the metadata
-   */
-  protected static getMetadata(create: boolean = false): NEORMMetadata {
-    if (create && !this._metadata[this.name]) {
-      this._metadata[this.name] = { keys: [] };
-    }
-    return this._metadata[this.name];
-  }
-
-
   public static _addColumn(key: string, primary: boolean = false) {
-    let metadata = this.getMetadata(true);
+    let metadata = this._getMetadata();
 
     if (primary) {
       metadata.primaryKey = key;

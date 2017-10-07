@@ -20,8 +20,8 @@ export class HomeComponent implements OnInit {
   }
 
   async save() {
-    const teachers = await Teacher.find({ _id: this.teacher.name });
-    console.log(teachers);
+    // const teachers = await Teacher.find({ _id: this.teacher.name });
+    console.log(await Teacher.all());
     // console.log(await this.teacher.save());
   }
 
