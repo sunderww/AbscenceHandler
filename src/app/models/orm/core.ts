@@ -1,9 +1,10 @@
 import * as DataStore     from 'nedb';
 import { fileInUserPath } from './util';
 
-interface NEORMMetadata {
+interface IMetadata {
    primaryKey ?: string;
    keys       : string[];
+   relations  : IRelationOptions[];
 }
 
 
@@ -19,18 +20,18 @@ export class Model {
    * The metadata of the model that will allow to know which properties will
    * be stored inside the database.
   */
-  private static _metadata: NEORMMetadata;
-  private static _getMetadata(): NEORMMetadata {
+  private static _metadata: IMetadata;
+  public static _getMetadata(): IMetadata {
     // NOTE: you CAN'T initialize _metadata on declaration as it would be
     // shared between all inherited classes
     if (!this._metadata) {
-      this._metadata = { keys: [] };
+      this._metadata = { keys: [], relations: [] };
     }
 
     return this._metadata;
   }
   /** A non-static helper to access the static _metadata member */
-  private metadata(): NEORMMetadata {
+  private metadata(): IMetadata {
     return (<typeof Model>this.constructor)._getMetadata();
   }
 
@@ -40,7 +41,7 @@ export class Model {
    * capabilities, in case some features are missing here.
    */
   private static _db: DataStore;
-  protected static _getDB(): DataStore {
+  public static _getDB(): DataStore {
     if (!this._db) {
       const filename = fileInUserPath(this.name + '.db');
       this._db = new DataStore({
@@ -194,15 +195,46 @@ export class Model {
     }
   }
 
-
-  public static _addColumn(key: string, primary: boolean = false) {
+  /**
+   * Method used by decorators to set metadata correctly.
+   */
+  public static _addColumn(key: string, options?: IColumnMetadataOptions) {
     let metadata = this._getMetadata();
 
-    if (primary) {
+    if (options && options.primary) {
       metadata.primaryKey = key;
+    } else if (options && options.relation) {
+      metadata.relations.push(options.relation);
     } else {
       metadata.keys.push(key);
     }
   }
 
+}
+
+
+/**
+ * Defines the type of relationship between two models
+ */
+export enum ERelationType {
+  ONE_TO_ONE = 1,   // Object has a foreign id
+  MANY_TO_ONE,      // Object has a foreign id
+  ONE_TO_MANY,      // Foreign object has this object's id
+}
+
+/**
+ * This interface defines the option of a relationship between models. It is
+ * mostly for internal use in decorators.
+ */
+export interface IRelationOptions {
+  dest: typeof Model;
+  type: ERelationType;
+}
+
+/**
+ * Defines the options that can be given to the _addColumn function
+ */
+export interface IColumnMetadataOptions {
+  primary   ?: boolean;
+  relation  ?: IRelationOptions;
 }

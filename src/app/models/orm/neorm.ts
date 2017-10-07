@@ -1,2 +1,2 @@
-export { Model }  from './core';
-export *          from './decorators';
+export { Model, ERelationType }  from './core';
+export * from './decorators';
