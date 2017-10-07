@@ -1,5 +1,6 @@
 import { Component, OnInit } from '@angular/core';
 import { Teacher }           from '../../models/teacher';
+import { Reason }            from '../../models/reason';
 
 @Component({
   selector: 'app-home',
@@ -14,11 +15,14 @@ export class HomeComponent implements OnInit {
 
   async ngOnInit() {
     const teachers = [];
+    let reason = new Reason();
     this.teacher = teachers.length ? teachers[0] : new Teacher();
   }
 
-  save() {
-    console.log("Save teacher " + this.teacher.name);
+  async save() {
+    const teachers = await Teacher.find({ _id: this.teacher.name });
+    console.log(teachers);
+    // console.log(await this.teacher.save());
   }
 
 }
