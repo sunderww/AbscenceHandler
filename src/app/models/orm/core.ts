@@ -67,7 +67,7 @@ export class Model {
    */
    protected static fromDocument(document: object): Model {
      let obj = new this();
-     obj.updateDocument(document);
+     obj.updateFromDocument(document);
      return obj;
    }
 
@@ -85,7 +85,7 @@ export class Model {
         if (error) {
           reject(error);
         } else {
-          this.updateDocument(newDoc);
+          this.updateFromDocument(newDoc);
           resolve(this);
         }
       });
@@ -180,7 +180,7 @@ export class Model {
   }
 
   /** Updates the columns to reflect the newDocument object, and set the _id correctly */
-  protected updateDocument(newDocument: object) {
+  protected updateFromDocument(newDocument: object) {
     this._id = newDocument['_id'];
 
     // Reset the fields of the object in case neDB changed anything, or to
