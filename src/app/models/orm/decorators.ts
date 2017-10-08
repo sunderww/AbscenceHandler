@@ -1,4 +1,21 @@
-import { Model, IRelationOptions }  from './core';
+import { Model, IRelationOptions, IColumnMetadataOptions }  from './core';
+
+/**
+ * The function that does the actual add column call
+ */
+function addColumn(target: any, key: string, options: IColumnMetadataOptions) {
+  // Throw an error if the target does not inherit from Model
+  if (!(target instanceof Model)) {
+    throw new Error("Column must be applied on a class that inherits Model");
+  }
+
+  // Check that the named is not reserved (starts with a _)
+  if (key.startsWith('_')) {
+    throw new Error("Column names shouldn't start with _ as it is reserved for internal use");
+  }
+
+  (<typeof Model>target.constructor)._addColumn(key, options);
+}
 
 /**
  * Defines a member variable as a column that will be saved in the database.
@@ -7,12 +24,7 @@ import { Model, IRelationOptions }  from './core';
  * be saved. Also, field names cannot begin by '$'.
  */
 export function Column(target: any, key: string) {
-  // Throw an error if the target does not inherit from Model
-  if (!(target instanceof Model)) {
-    throw new Error("Column must be applied on a class that inherits Model");
-  }
-
-  (<typeof Model>target.constructor)._addColumn(key);
+  addColumn(target, key, {});
 }
 
 /**
@@ -20,12 +32,7 @@ export function Column(target: any, key: string) {
  * You must use one of the native type: String, Number or Date.
  */
 export function PrimaryColumn(target: any, key: string) {
-  // Throw an error if the target does not inherit from Model
-  if (!(target.constructor.prototype instanceof Model)) {
-    throw new Error("Column must be applied on a class that inherits Model");
-  }
-
-  (<typeof Model>target.constructor)._addColumn(key, { primary: true });
+  addColumn(target, key, { primary: true });
 }
 
 
@@ -35,14 +42,7 @@ export function PrimaryColumn(target: any, key: string) {
  * Note that all modifications will be saved in cascade in the other model.
  */
 export function Relation(options: IRelationOptions) {
-  console.log('RELATIONSHIP OPTIONS :')
-  console.log(options)
   return (target: any, key: string) => {
-    // Throw an error if the target does not inherit from Model
-    if (!(target.constructor.prototype instanceof Model)) {
-      throw new Error("Column must be applied on a class that inherits Model");
-    }
-
-    (<typeof Model>target.constructor)._addColumn(key, { relation: options });
+    addColumn(target, key, { relation: options });
   }
 }
