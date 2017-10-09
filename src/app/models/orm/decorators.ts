@@ -39,10 +39,16 @@ export function PrimaryColumn(target: any, key: string) {
 /**
  * Defines a relationship with another Model. You must specify the destination
  * model and the relationship type.
+ * One to many relationships must declare a backref.
  * Note that all modifications will be saved in cascade in the other model.
  */
 export function Relation(options: IRelationOptions) {
   return (target: any, key: string) => {
+    // Check that the destination is a class that inherits from model
+    if (!(options.dest.prototype instanceof Model)) {
+      throw new Error("Relation must be applied on a member that inherits Model");
+    }
+
     addColumn(target, key, { relation: options });
   }
 }

@@ -4,7 +4,7 @@ import { fileInUserPath } from './util';
 interface IMetadata {
    primaryKey ?: string;
    keys       : string[];
-   relations  : IRelationOptions[];
+   relations  : IRelationMetadata[];
 }
 
 
@@ -13,6 +13,8 @@ interface IMetadata {
  * Use the @Column decorator in order to add a field to the database.
  * The @PrimaryColumn decorator can be used to specify that a field is a primary
  * key. By default, neDB will create a 16 characters alphanumerical id.
+ * Note that the column names shouldn't start with '_' as it is reserved for
+ * internal use only.
  */
 export class Model {
 
@@ -65,31 +67,74 @@ export class Model {
    * sets the primary key correctly and the internal _id.
    * @return {Model} the newly created object
    */
-   protected static fromDocument(document: object): Model {
-     let obj = new this();
-     obj.updateFromDocument(document);
-     return obj;
+   protected static async fromDocument(document: object): Promise<Model> {
+     return new Promise<Model>(async (resolve, reject) => {
+       let obj = new this();
+       await obj.updateFromDocument(document);
+       resolve(obj);
+     });
    }
+
+  /**
+   * Saves the model's relationships of a given type to the database. If they
+   * already exist in the database, it won't do anything.
+   * @param {ERelationType[]} types The types of relations that should be saved
+   * @param {Model} except To avoid cyclic calls to save, don't save the "parent"
+   * @return {Promise<any>} A promise that resolves when the relations are saved
+   */
+  private async saveRelations(types: ERelationType[], except?: Model): Promise<any> {
+    let promises: Promise<any>[] = []
+
+    for (let rel of this.metadata().relations) {
+      if (types.indexOf(rel.options.type) > -1) {
+        const relModel: Model = this[rel.name];
+
+        if (relModel && relModel != except && !relModel._id)
+          promises.push(relModel._save(this));
+      }
+    }
+
+    return Promise.all(promises);
+  }
+
+  /**
+   * Does the actual save. The user doesn't need to see the internal caller
+   * parameter, so it has to be a separate function.
+   * @param {Model} caller (optional) Give the caller as a parameter to avoid
+   * cyclic reference.
+   * @return {Promise<object>} A promise that resolves with the updated object.
+   */
+  private async _save(caller ?: Model): Promise<Model> {
+    return new Promise<Model>((resolve, reject) => {
+      const toSave = [ERelationType.ONE_TO_ONE, ERelationType.MANY_TO_ONE]
+      this.saveRelations(toSave, caller).then(() => {
+        this.db().insert(this.getDBDocument(), (error, newDoc) => {
+          if (error) {
+            reject(error);
+          } else {
+            this.saveRelations([ERelationType.ONE_TO_MANY], caller).then( () => {
+              return this.updateFromDocument(newDoc);
+            }).then(() => {
+              resolve(this);
+            });
+          }
+        });
+      });
+    });
+  }
 
   /**
    * Save the model to the database. If the models already exists in database,
    * it will instead call update.
+   * If the model has relationships to object that has not been saved, it will
+   * save them in order to get their _id.
    * @return {Promise<object>} A promise that resolves with the updated object
    * (contains the _id).
    */
   public async save(): Promise<Model> {
     if (this._id) return this.update();
 
-    return new Promise<Model>((resolve, reject) => {
-      this.db().insert(this.getDBDocument(), (error, newDoc) => {
-        if (error) {
-          reject(error);
-        } else {
-          this.updateFromDocument(newDoc);
-          resolve(this);
-        }
-      });
-    });
+    return this._save();
   }
 
   /**
@@ -126,12 +171,16 @@ export class Model {
     }
 
     return new Promise<Model[]>((resolve, reject) => {
-      this._getDB().find(data, (error, documents) => {
+      this._getDB().find(data, async (error, documents) => {
         if (error) {
           reject(error);
         } else {
-          // Map document objects to models
-          resolve(documents.map(d => this.fromDocument(d)));
+          // Transform document objects to models
+          let models = []
+          for (let d of documents) {
+            models.push(await this.fromDocument(d));
+          }
+          resolve(models);
         }
       });
     });
@@ -139,14 +188,8 @@ export class Model {
 
   /** Returns the model with a given _id */
   public static async findByID(id: string): Promise<Model> {
-    return new Promise<Model>((resolve, reject) => {
-      this.find({ _id: id }).then(models => {
-        if (models.length) resolve(models[0]);
-        else resolve(null);
-      }).catch(error => {
-        reject(error);
-      });
-    });
+    const models = await this.find({ _id: id });
+    return models.length ? models[0] : null;
   }
 
   /** Returns all models from the db */
@@ -161,27 +204,53 @@ export class Model {
   }
 
   /**
+   * Generates the data that will be stored in the database for the relationships
+   * @return {object} The relation data that can be safely put in _rel object
+   */
+   private getRelationDBDocument(): object {
+     const metadata = this.metadata();
+     let obj = {};
+
+     for (let rel of metadata.relations) {
+
+       // One to many relationships are stored on the other side
+      const types = [ERelationType.ONE_TO_ONE, ERelationType.MANY_TO_ONE];
+       if (types.indexOf(rel.options.type) > -1) {
+         const relModel: Model = this[rel.name];
+         obj[rel.name] = relModel ? relModel._id : "undefined";
+       }
+     }
+
+     return obj;
+   }
+
+  /**
    * Generates the data that will be stored in the database using metadata.
    * @return {object} The document that will be stored inside neDB.
    */
-  protected getDBDocument(): object {
-    let document = {};
-    const cls = <typeof Model>this.constructor;
+  public getDBDocument(): object {
     const metadata = this.metadata();
+    let document = {};
 
     if (metadata.primaryKey) {
       document['_id'] = this[metadata.primaryKey];
+    } else if (this._id) {
+      document['_id'] = this._id;
     }
     for (let key of metadata.keys) {
       document[key] = this[key];
     }
+    document['_rel'] = this.getRelationDBDocument();
 
     return document;
   }
 
   /** Updates the columns to reflect the newDocument object, and set the _id correctly */
-  protected updateFromDocument(newDocument: object) {
+  protected async updateFromDocument(newDocument: object) {
     this._id = newDocument['_id'];
+
+    console.log('updateFromDocument');
+    console.log(newDocument);
 
     // Reset the fields of the object in case neDB changed anything, or to
     // initialize when constructing a model from a DB document.
@@ -192,6 +261,22 @@ export class Model {
 
     for (let key of metadata.keys) {
       this[key] = newDocument[key];
+    }
+
+    // Set relation objects
+    for (let rel of metadata.relations) {
+      const cls = <typeof Model>rel.options.dest;
+
+      // One to many case : an array of objects
+      if (rel.options.type == ERelationType.ONE_TO_MANY) {
+        const key = `_rel.${rel.options.backref}`;
+        this[rel.name] = await cls.find( { key: this._id });
+      } else if (rel.name in newDocument['_rel']) {
+        // Other cases if the relation is set
+
+        const id = newDocument['_rel'][rel.name];
+        this[rel.name] = await cls.findByID(id);
+      }
     }
   }
 
@@ -224,7 +309,14 @@ export class Model {
     if (options && options.primary) {
       metadata.primaryKey = key;
     } else if (options && options.relation) {
-      metadata.relations.push(options.relation);
+      metadata.relations.push({
+        name: key,
+        options: options.relation
+      });
+
+      if (options.relation.type == ERelationType.ONE_TO_MANY) {
+        // TODO: add the backref
+      }
     } else {
       metadata.keys.push(key);
     }
@@ -243,12 +335,34 @@ export enum ERelationType {
 }
 
 /**
- * This interface defines the option of a relationship between models. It is
- * mostly for internal use in decorators.
+ * This interface defines the options of a relationship between models.
+ * This is what the user will give as parameters to a relation decorator.
+ * type
  */
 export interface IRelationOptions {
-  dest: typeof Model;
-  type: ERelationType;
+  /** The type of relation it is */
+  type      : ERelationType;
+
+  /** The destination object's Typescript type */
+  dest      : typeof Model;
+
+  /** If the destination object should be deleted when the model is deleted */
+  cascade  ?: boolean;
+
+  /**
+   * The name of the reference on the destination object, if the relation type
+   * is one to many
+   */
+  backref  ?: string;
+}
+
+/**
+ * This interface defines the metadata necessary for relationships. It should
+ * only be for internal use.
+ */
+export interface IRelationMetadata {
+  options: IRelationOptions;
+  name: string;
 }
 
 /**
