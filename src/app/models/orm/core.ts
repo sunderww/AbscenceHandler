@@ -196,6 +196,26 @@ export class Model {
   }
 
   /**
+   * Deletes the document from the database. Does nothing if the document hasn't
+   * already been saved.
+   * @return {Promise<boolean>} true if the object has been deleted, false if it
+   * wasn't already saved, and an error will be thrown if something goes wrong
+   */
+  public async delete(): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      if (!this._id) return resolve(false);
+
+      this.db().remove({ _id: this._id }, (err, numRemoved) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(numRemoved > 0);
+        }
+      });
+    });
+  }
+
+  /**
    * Method used by decorators to set metadata correctly.
    */
   public static _addColumn(key: string, options?: IColumnMetadataOptions) {
