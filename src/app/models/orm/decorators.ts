@@ -1,4 +1,4 @@
-import { Model, IRelationOptions, IColumnMetadataOptions }  from './core';
+import { Model, IRelationOptions, IColumnMetadataOptions, ERelationType }  from './core';
 
 /**
  * The function that does the actual add column call
@@ -47,6 +47,10 @@ export function Relation(options: IRelationOptions) {
     // Check that the destination is a class that inherits from model
     if (!(options.dest.prototype instanceof Model)) {
       throw new Error("Relation must be applied on a member that inherits Model");
+    }
+
+    if (options.type == ERelationType.ONE_TO_MANY && !options.backref) {
+      throw new Error("One-to-many relation must declare a backref.");
     }
 
     addColumn(target, key, { relation: options });

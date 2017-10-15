@@ -23,7 +23,7 @@ export class Model {
    * be stored inside the database.
   */
   private static _metadata: IMetadata;
-  public static _getMetadata(): IMetadata {
+  public static _getMetadata(): IMetadata { //TODO: put private back
     // NOTE: you CAN'T initialize _metadata on declaration as it would be
     // shared between all inherited classes
     if (!this._metadata) {
@@ -43,7 +43,7 @@ export class Model {
    * capabilities, in case some features are missing here.
    */
   private static _db: DataStore;
-  public static _getDB(): DataStore {
+  public static _getDB(): DataStore { // TODO: put protected back
     if (!this._db) {
       const filename = fileInUserPath(this.name + '.db');
       this._db = new DataStore({
@@ -59,8 +59,32 @@ export class Model {
     return (<typeof Model>this.constructor)._getDB();
   }
 
+  /**
+   * A cache of objects by id to avoid re-creating models at each db fetch
+   */
+  private static _cache: { [key: string]: Model };;
+  private static _getCache(): { [key: string]: Model } {
+    if (!this._cache) {
+      this._cache = {};
+    }
+    return this._cache;
+  }
+  /** A non-static helper to access the static _cache member */
+  private cache(): { [key: string]: Model } {
+    return (<typeof Model>this.constructor)._getCache();
+  }
+
   /** The neDB _id of the object. Null if not saved to neDB */
   private _id: string;
+
+  /** Initializes the array relationships so that the array is not undefined */
+  constructor() {
+    for (let rel of this.metadata().relations) {
+      if (rel.options.type == ERelationType.ONE_TO_MANY) {
+        this[rel.name] = [];
+      }
+    }
+  }
 
   /**
    * Constructs a model from a document coming from the DB. Basically Just
@@ -87,10 +111,19 @@ export class Model {
 
     for (let rel of this.metadata().relations) {
       if (types.indexOf(rel.options.type) > -1) {
-        const relModel: Model = this[rel.name];
 
-        if (relModel && relModel != except && !relModel._id)
-          promises.push(relModel._save(this));
+        if (Array.isArray(this[rel.name])) {
+          for (let relModel of this[rel.name]) {
+            if (relModel && relModel != except && !relModel._id) {
+              relModel[rel.options.backref] = this;
+              promises.push(relModel._save(this));
+            }
+          }
+        } else {
+          const relModel: Model = this[rel.name];
+          if (relModel && relModel != except && !relModel._id)
+            promises.push(relModel._save(this));
+        }
       }
     }
 
@@ -112,7 +145,8 @@ export class Model {
           if (error) {
             reject(error);
           } else {
-            this.saveRelations([ERelationType.ONE_TO_MANY], caller).then( () => {
+            this._id = newDoc['_id'];
+            this.saveRelations([ERelationType.ONE_TO_MANY], caller).then(() => {
               return this.updateFromDocument(newDoc);
             }).then(() => {
               resolve(this);
@@ -188,13 +222,26 @@ export class Model {
 
   /** Returns the model with a given _id */
   public static async findByID(id: string): Promise<Model> {
+    let cache = this._getCache();
+
+    if (cache[id]) return this._getCache()[id];
+
     const models = await this.find({ _id: id });
-    return models.length ? models[0] : null;
+    cache[id] = models.length ? models[0] : null;
+    return cache[id];
   }
 
   /** Returns all models from the db */
   public static async all(): Promise<Model[]> {
     return this.find({});
+  }
+
+  public static async debugAll(): Promise<object[]> {
+    return new Promise<object[]>(resolve => {
+      this._getDB().find({}, (_, docs) => {
+        resolve(docs);
+      });
+    });
   }
 
 
@@ -248,9 +295,7 @@ export class Model {
   /** Updates the columns to reflect the newDocument object, and set the _id correctly */
   protected async updateFromDocument(newDocument: object) {
     this._id = newDocument['_id'];
-
-    console.log('updateFromDocument');
-    console.log(newDocument);
+    if (!this.cache()[this._id]) this.cache()[this._id] = this;
 
     // Reset the fields of the object in case neDB changed anything, or to
     // initialize when constructing a model from a DB document.
@@ -270,7 +315,7 @@ export class Model {
       // One to many case : an array of objects
       if (rel.options.type == ERelationType.ONE_TO_MANY) {
         const key = `_rel.${rel.options.backref}`;
-        this[rel.name] = await cls.find( { key: this._id });
+        this[rel.name] = await cls.find( { [key]: this._id });
       } else if (rel.name in newDocument['_rel']) {
         // Other cases if the relation is set
 
@@ -281,15 +326,27 @@ export class Model {
   }
 
   /**
-   * Deletes the document from the database. Does nothing if the document hasn't
-   * already been saved.
-   * @return {Promise<boolean>} true if the object has been deleted, false if it
-   * wasn't already saved, and an error will be thrown if something goes wrong
+   * Call delete() on the relation with a given name. If the relation is an
+   * array, calls delete() on all elements.
    */
-  public async delete(): Promise<boolean> {
-    return new Promise<boolean>((resolve, reject) => {
-      if (!this._id) return resolve(false);
+  private async _deleteRelation(name: string): Promise<boolean> {
+    if (Array.isArray(this[name])) {
+      for (let model of <Model[]>this[name]) {
+        model.delete();
+      }
+    } else {
+      (<Model>this[name]).delete();
+    }
+    return true;
+  }
 
+  /**
+   * The code to actually delete this object
+   */
+  private async _delete(): Promise<boolean> {
+    if (!this._id) return Promise.resolve(false);
+
+    return new Promise<boolean>((resolve, reject) => {
       this.db().remove({ _id: this._id }, (err, numRemoved) => {
         if (err) {
           reject(err);
@@ -297,6 +354,29 @@ export class Model {
           resolve(numRemoved > 0);
         }
       });
+    });
+  }
+
+  /**
+   * Deletes the document from the database. Does nothing if the document hasn't
+   * already been saved.
+   * @return {Promise<boolean>} true if the object has been deleted, false if it
+   * wasn't already saved, and an error will be thrown if something goes wrong
+   */
+  public async delete(): Promise<boolean> {
+    if (!this._id) return Promise.resolve(false);
+
+    let deletions = [];
+    // Delete relation if cascade option is set to true
+    for (let rel of this.metadata().relations) {
+      if (rel.options.cascade) {
+        deletions.push(this._deleteRelation(rel.name));
+      }
+    }
+
+    let promises = deletions.concat(this._delete())
+    return Promise.all(promises).then(results => {
+      return results.length > 0 ? results[results.length - 1] : false;
     });
   }
 
@@ -314,8 +394,13 @@ export class Model {
         options: options.relation
       });
 
+      // In case of One-to-many relationship, set the backref on the other side
       if (options.relation.type == ERelationType.ONE_TO_MANY) {
-        // TODO: add the backref
+        const cls = options.relation.dest;
+        cls._addColumn(options.relation.backref, { relation: {
+          type: ERelationType.MANY_TO_ONE,
+          dest: this,
+        } });
       }
     } else {
       metadata.keys.push(key);
